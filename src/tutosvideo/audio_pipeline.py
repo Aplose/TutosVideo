@@ -194,7 +194,7 @@ def _write_timeline(
         preps[b.step_id] = prep
         slot = (actual_slots_ms or {}).get(b.step_id) or (planned.total_ms + prep)
         # Slot ≥ prep + audio (+ marge) pour ne jamais couper la voix
-        slot = max(int(slot), prep + b.duration_ms + 300 + int(scenario.choreography.settle_ms))
+        slot = max(int(slot), prep + b.duration_ms + 200 + int(scenario.choreography.settle_ms))
         slots[b.step_id] = slot
         # Sous-titres alignés sur le début de narration (après silence de tête)
         cue_start = cursor + prep
@@ -242,7 +242,7 @@ def apply_capture_slots(
         prep = preps.get(b.step_id, 0)
         result[b.step_id] = max(
             actual.get(b.step_id, b.duration_ms),
-            prep + b.duration_ms + 300,
+            prep + b.duration_ms + 200,
         )
     return result
 

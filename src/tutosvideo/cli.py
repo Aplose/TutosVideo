@@ -79,7 +79,7 @@ def cmd_author(args: argparse.Namespace) -> None:
             headed=bool(getattr(args, "headed", False)),
             reuse_audio=bool(getattr(args, "reuse_audio", False)),
             until=getattr(args, "until", None),
-            no_burn_subs=bool(getattr(args, "no_burn_subs", False)),
+            no_burn_subs=not bool(getattr(args, "burn_subs", False)),
             log=print,
         )
 
@@ -128,7 +128,7 @@ def cmd_pipeline(args: argparse.Namespace) -> None:
             headed=bool(args.headed),
             reuse_audio=bool(getattr(args, "reuse_audio", False)),
             until=getattr(args, "until", None),
-            no_burn_subs=bool(getattr(args, "no_burn_subs", False)),
+            no_burn_subs=not bool(getattr(args, "burn_subs", False)),
             log=print,
         )
     else:
@@ -191,7 +191,7 @@ def run_render(
     headed: bool = False,
     reuse_audio: bool = False,
     until: str | None = None,
-    no_burn_subs: bool = False,
+    no_burn_subs: bool = True,
     log: Callable[[str], None] | None = None,
 ) -> Path:
     """Pipeline TTS (opt.) + capture + mux. ``log`` reçoit les messages de progression."""
@@ -280,20 +280,21 @@ def run_render(
 
     srt_path = out_dir / "subtitles.srt"
     final_mp4 = out_dir / f"{scenario.id}.mp4"
-    _log("5/5 — Mux ffmpeg (vidéo + audio + sous-titres)…")
+    _log("5/5 — Mux ffmpeg (vidéo + audio" + (", sans sous-titres incrustés" if no_burn_subs else " + sous-titres") + ")…")
     mux(video_path, audio_track, srt_path, final_mp4, burn_subtitles=not no_burn_subs)
     _log(f"✓ Vidéo prête : {rel_display(final_mp4)}")
     return final_mp4
 
 
 def cmd_render(args: argparse.Namespace) -> None:
+    burn = bool(getattr(args, "burn_subs", False))
     run_render(
         args.scenario,
         dry_run=bool(args.dry_run),
         headed=bool(args.headed),
         reuse_audio=bool(getattr(args, "reuse_audio", False)),
         until=getattr(args, "until", None),
-        no_burn_subs=bool(getattr(args, "no_burn_subs", False)),
+        no_burn_subs=not burn,
         log=print,
     )
 
@@ -443,7 +444,16 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--dry-run", action="store_true", help="Silence TTS + stop before_submit")
     r.add_argument("--reuse-audio", action="store_true", help="Ne régénère pas les mp3 déjà présents")
     r.add_argument("--until", default=None)
-    r.add_argument("--no-burn-subs", action="store_true")
+    r.add_argument(
+        "--burn-subs",
+        action="store_true",
+        help="Incruster les sous-titres dans la vidéo (défaut : SRT séparé uniquement)",
+    )
+    r.add_argument(
+        "--no-burn-subs",
+        action="store_true",
+        help="(déprécié, comportement par défaut) Ne pas incruster les sous-titres",
+    )
     r.set_defaults(func=cmd_render)
 
     c = sub.add_parser("capture", help="Utilitaire de capture vidéo CLI")

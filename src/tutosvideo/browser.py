@@ -155,20 +155,40 @@ def _element_target_score(locator: Locator, *, prefer: str | None = None) -> flo
     """Score pour préférer le contenu utile (titres / tarifs) au nav sticky.
 
     ``prefer="testimonial"`` inverse la pénalité témoignages (lecture d'un avis).
+    ``prefer="nav"|"menu"|"sidebar"`` privilégie le menu latéral (mat-tree, aside).
     """
-    prefer_tm = (prefer or "").lower() in ("testimonial", "temoignage", "témoignage")
+    prefer_key = (prefer or "").lower()
+    prefer_tm = prefer_key in ("testimonial", "temoignage", "témoignage")
+    prefer_nav = prefer_key in ("nav", "menu", "sidebar", "aside")
     try:
         return float(
             locator.evaluate(
-                """(el, preferTm) => {
+                """(el, opts) => {
+                  const preferTm = !!opts.preferTm;
+                  const preferNav = !!opts.preferNav;
                   const text = (el.innerText || el.textContent || '').trim();
                   let score = 0;
                   const tag = el.tagName || '';
+                  const inSideNav = !!el.closest(
+                    'mat-tree, mat-sidenav, mat-drawer, aside, [class*="sidebar" i], '
+                    + '[class*="side-nav" i], .menu-expandable-row, .cdk-tree'
+                  );
+                  if (preferNav) {
+                    if (inSideNav) score += 200;
+                    if (tag === 'BUTTON' || tag === 'A') score += 30;
+                    if (/^H[1-6]$/.test(tag)) score -= 80;
+                    if (el.closest('main, [role="main"], .page-title, h1, h2')) score -= 100;
+                    const r = el.getBoundingClientRect();
+                    if (r.x < 420) score += 40;
+                    if (r.width < 8 || r.height < 8) score -= 50;
+                    return score;
+                  }
                   if (/^H[1-6]$/.test(tag)) score += 60;
                   if (tag === 'BUTTON' || tag === 'A') score += 5;
                   if (el.closest('header, nav, [role="banner"], footer, [role="contentinfo"]')) {
                     score -= 120;
                   }
+                  if (inSideNav) score -= 80;
                   const inTm = !!el.closest(
                     '[class*="testimonial" i], [class*="temoignage" i], [id*="testimonial" i], '
                     + '[id*="temoignage" i], [class*="review" i], blockquote, .swiper, .carousel'
@@ -195,7 +215,7 @@ def _element_target_score(locator: Locator, *, prefer: str | None = None) -> flo
                   if (r.width < 8 || r.height < 8) score -= 50;
                   return score;
                 }""",
-                prefer_tm,
+                {"preferTm": prefer_tm, "preferNav": prefer_nav},
             )
         )
     except Exception:
@@ -803,41 +823,28 @@ class Runner:
                 if self.on_beat_start:
                     self.on_beat_start(step, timeline)
 
-                # 1) Préparer la cible AVANT l'horloge audio → le contrôle est déjà
-                #    visible quand la narration commence (mux : silence de tête = prep).
+                # 1) Prep silencieux : seulement si la cible est DÉJÀ sur la page
+                #    (pas de highlight avant un goto / login — sinon voix et UI décalées).
                 prep_t0 = time.monotonic()
                 set_debug(
                     page,
                     f"beat={step.id} PREP\naudio={timeline.audio_ms}ms\n{step.narrate[:100]}",
                     self.debug_overlay,
                 )
-                # Scrolls préalables (sans cadre) puis un seul highlight sur la cible utile
-                for action in step.actions:
-                    if "scroll" not in action:
-                        break
-                    target_hint = action["scroll"].get("target")
-                    if target_hint:
-                        try:
-                            ensure_centered(page, resolve_locator(page, target_hint))
-                        except Exception:
-                            pass
-                    else:
-                        page.mouse.wheel(0, int(action["scroll"].get("dy", 600)))
-                    page.wait_for_timeout(200)
-                target = self._first_target(page, step.actions)
+                target = self._prep_target(page, step.actions)
                 if target is not None:
                     try:
                         prepare_for_action(
                             page,
                             target,
-                            pointer_ms=min(timeline.pointer_ms, 280),
+                            pointer_ms=min(timeline.pointer_ms, 180),
                             highlight_target=True,
                         )
                     except Exception:
-                        page.wait_for_timeout(200)
+                        page.wait_for_timeout(120)
                 prep_ms = int((time.monotonic() - prep_t0) * 1000)
 
-                # 2) Horloge alignée sur la voix (démarre quand la cible est prête)
+                # 2) Voix + action : action_at=0 → l'action part avec le début de la voix
                 beat_t0 = time.monotonic()
                 set_debug(
                     page,
@@ -846,27 +853,25 @@ class Runner:
                     f"{step.narrate[:100]}",
                     self.debug_overlay,
                 )
-                # Hold jusqu'au moment d'action (cible déjà à l'écran)
-                page.wait_for_timeout(max(0, timeline.action_at_ms))
+                if timeline.action_at_ms > 0:
+                    page.wait_for_timeout(timeline.action_at_ms)
 
-                # Re-sync pointeur juste avant l'action (layout / sticky)
                 if target is not None:
                     try:
-                        move_pointer_to(page, target, pointer_ms=80, center_first=True)
+                        move_pointer_to(page, target, pointer_ms=60, center_first=True)
                     except Exception:
                         pass
 
                 action_start = time.monotonic()
-                # Cadre déjà posé au PREP → ne pas clear/reposer (évite le double cadre)
                 page = self._run_actions(
                     page, step.actions, spotlight_ready=target is not None
                 )
                 page = close_extra_pages(page)
                 action_elapsed = int((time.monotonic() - action_start) * 1000)
 
-                # 3) Ne jamais couper la voix : attendre la fin audio réelle + marge
+                # 3) Tenir jusqu'à la fin de la voix réelle (ffprobe), pas la longueur texte
                 audio_ms = max(audio_ms, self._resolve_audio_ms(step))
-                audio_tail_pad_ms = 300
+                audio_tail_pad_ms = 200
                 elapsed = int((time.monotonic() - beat_t0) * 1000)
                 remain_audio = max(0, audio_ms + audio_tail_pad_ms - elapsed)
                 page.wait_for_timeout(remain_audio)
@@ -874,7 +879,6 @@ class Runner:
                 clear_highlight(page)
 
                 actual_ms = int((time.monotonic() - prep_t0) * 1000)
-                # Slot vidéo ≥ prep + audio + settle (évite dérive mux)
                 min_slot = prep_ms + audio_ms + audio_tail_pad_ms + timeline.settle_ms
                 if actual_ms < min_slot:
                     page.wait_for_timeout(min_slot - actual_ms)
@@ -904,6 +908,67 @@ class Runner:
                 video_path = capture_session.save_after_close()
         return video_path
 
+    def _prep_target(self, page: Page, actions: list[dict[str, Any]]) -> Locator | None:
+        """Cible à préparer avant la voix — None si une navigation réelle précède."""
+        for action in actions:
+            if "goto" in action:
+                url = action["goto"]
+                if url == "{{start_url}}":
+                    url = self.scenario.start_url
+                # Skip goto déjà satisfait : la cible suivante peut être prépable
+                if self._already_on(page, url):
+                    continue
+                return None
+            if action.get("action") in {
+                "login_dolibarr",
+                "fill_verify_code",
+                "wait_registration_success",
+                "wait_instance",
+                "fill_captcha",
+            }:
+                return None
+            if "scroll" in action:
+                target = action["scroll"].get("target")
+                if target:
+                    try:
+                        loc = resolve_locator(page, target)
+                        ensure_centered(page, loc)
+                    except Exception:
+                        pass
+                continue
+            try:
+                if "highlight" in action:
+                    return resolve_locator(page, action["highlight"])
+                if "click" in action:
+                    return resolve_locator(page, action["click"])
+                if "type" in action:
+                    return resolve_locator(page, action["type"])
+            except Exception:
+                continue
+        return None
+
+    def _first_target(self, page: Page, actions: list[dict[str, Any]]) -> Locator | None:
+        return self._prep_target(page, actions)
+
+    @staticmethod
+    def _norm_nav_url(url: str) -> str:
+        """Normalise URL Angular/Dolibarr pour comparer sans recharger."""
+        from urllib.parse import urlsplit, urlunsplit
+
+        u = urlsplit((url or "").strip())
+        path = u.path or "/"
+        if path.endswith("/index.php"):
+            path = path[: -len("/index.php")] or "/"
+        path = path.rstrip("/") or "/"
+        # garder le hash (route SPA)
+        return urlunsplit((u.scheme, u.netloc, path, "", u.fragment))
+
+    def _already_on(self, page: Page, url: str) -> bool:
+        try:
+            return self._norm_nav_url(page.url) == self._norm_nav_url(url)
+        except Exception:
+            return False
+
     def _resolve_audio_ms(self, step: Step) -> int:
         """Durée audio réelle (ffprobe fichier) prioritaire sur le cache."""
         try:
@@ -922,23 +987,6 @@ class Runner:
             return int(cached)
         # preview sans TTS : estime ~14 car/s FR
         return max(2500, int(len(step.narrate) / 14 * 1000))
-
-    def _first_target(self, page: Page, actions: list[dict[str, Any]]) -> Locator | None:
-        for action in actions:
-            try:
-                if "highlight" in action:
-                    return resolve_locator(page, action["highlight"])
-                if "click" in action:
-                    return resolve_locator(page, action["click"])
-                if "type" in action:
-                    return resolve_locator(page, action["type"])
-                if "scroll" in action:
-                    target = action["scroll"].get("target")
-                    if target:
-                        return resolve_locator(page, target)
-            except Exception:
-                continue
-        return None
 
     def _fill_verify_code(self, page: Page) -> Page:
         """Après submit inscription MGC : attendre le panneau code, IMAP, valider.
@@ -1247,11 +1295,17 @@ class Runner:
                 url = action["goto"]
                 if url == "{{start_url}}":
                     url = self.scenario.start_url
-                page.goto(url, wait_until="domcontentloaded", timeout=60_000)
-                wait_page_ready(page)
-                dismiss_overlays(page)
-                inject_chrome(page)
-                page = close_extra_pages(page)
+                if self._already_on(page, url):
+                    print(f"[runner] déjà sur l'écran — skip goto ({url})")
+                    wait_page_ready(page)
+                    inject_chrome(page)
+                else:
+                    page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+                    wait_page_ready(page)
+                    dismiss_overlays(page)
+                    inject_chrome(page)
+                    page = close_extra_pages(page)
+                    page.wait_for_timeout(400)
                 spotlight_ready = False
             elif "scroll" in action:
                 target = action["scroll"].get("target")
@@ -1279,11 +1333,11 @@ class Runner:
                     # Cadre déjà posé au PREP : pas de clear/repose (évite le double)
                     ensure_centered(page, loc)
                     highlight(page, loc)
-                    page.wait_for_timeout(450)
+                    page.wait_for_timeout(280)
                 else:
                     clear_highlight(page)
-                    prepare_for_action(page, loc, pointer_ms=220, highlight_target=True)
-                    page.wait_for_timeout(700)
+                    prepare_for_action(page, loc, pointer_ms=180, highlight_target=True)
+                    page.wait_for_timeout(350)
                 spotlight_ready = True
             elif "click" in action:
                 try:
@@ -1313,7 +1367,7 @@ class Runner:
                     if not spotlight_ready:
                         prepare_for_action(page, loc, pointer_ms=260, highlight_target=True)
                     # Bouton déjà cadré au PREP : pause lecture puis clic (sans 2e cadre)
-                    page.wait_for_timeout(550)
+                    page.wait_for_timeout(450)
                     same_tab = True
                     if isinstance(hint, dict) and hint.get("same_tab") is False:
                         same_tab = False
@@ -1322,7 +1376,7 @@ class Runner:
                     before = list(page.context.pages)
                     click_at_locator(page, loc, timeout_ms=8000, highlight_target=False)
                     wait_page_ready(page)
-                    page.wait_for_timeout(350)
+                    page.wait_for_timeout(250)
                     # Nouvel onglet ouvert malgré same_tab → récupérer l'URL puis fermer
                     newcomers = [p for p in page.context.pages if p not in before]
                     if newcomers:
@@ -1338,10 +1392,10 @@ class Runner:
                             wait_page_ready(page)
                     page = close_extra_pages(page)
                     spotlight_ready = False
-                except Exception:
-                    # try alternate keys in same dict list later
+                except Exception as exc:
+                    print(f"[runner] click échoué ({action.get('click')}): {exc}")
                     continue
-                page.wait_for_timeout(250)
+                page.wait_for_timeout(180)
                 inject_chrome(page)
             elif "type" in action:
                 spec = action["type"]

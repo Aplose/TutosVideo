@@ -14,11 +14,12 @@ from tutosvideo.config import Settings
 
 @dataclass
 class Choreography:
-    action_at: float = 0.55
-    min_action_at: float = 0.40
+    # 0 = action démarre avec le début de la voix (durée audio réelle)
+    action_at: float = 0.0
+    min_action_at: float = 0.0
     type_delay_ms: int = 100
-    settle_ms: int = 600
-    pointer_ms: int = 450
+    settle_ms: int = 350
+    pointer_ms: int = 280
 
 
 @dataclass
@@ -94,11 +95,11 @@ def load_scenario(scenario_path: Path, settings: Settings | None = None) -> Scen
     expanded = expand_tree(raw, vars_map, settings)
     choreo_raw = expanded.get("choreography") or {}
     choreography = Choreography(
-        action_at=float(choreo_raw.get("action_at", 0.55)),
-        min_action_at=float(choreo_raw.get("min_action_at", 0.40)),
+        action_at=float(choreo_raw.get("action_at", 0.0)),
+        min_action_at=float(choreo_raw.get("min_action_at", 0.0)),
         type_delay_ms=int(choreo_raw.get("type_delay_ms", 100)),
-        settle_ms=int(choreo_raw.get("settle_ms", 600)),
-        pointer_ms=int(choreo_raw.get("pointer_ms", 450)),
+        settle_ms=int(choreo_raw.get("settle_ms", 350)),
+        pointer_ms=int(choreo_raw.get("pointer_ms", 280)),
     )
     steps = [
         Step(

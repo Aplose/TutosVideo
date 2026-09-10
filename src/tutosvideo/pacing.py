@@ -1,4 +1,4 @@
-"""Moteur de rythme voix-d'abord : pointer → hold → action → settle."""
+"""Moteur de rythme voix-d'abord : prep silencieux → voix + action ensemble."""
 
 from __future__ import annotations
 
@@ -25,12 +25,10 @@ def plan_beat(
     choreography: Choreography,
     estimated_action_ms: int = 0,
 ) -> BeatTimeline:
-    """Calcule la timeline d'un beat à partir de la durée audio réelle.
+    """Calcule la timeline d'un beat à partir de la durée audio réelle (ffprobe).
 
-    - Pointer au début.
-    - L'action ne démarre qu'après max(min_action_at, action_at) de l'audio.
-    - Si l'action finit avant la fin audio → freeze jusqu'à fin audio + settle.
-    - Si l'action déborde → on laisse finir, puis settle (on ne coupe pas l'audio).
+    Par défaut ``action_at=0`` : l'action démarre avec le début de la voix
+    (après le silence de prep éventuel dans le mux).
     """
     audio_ms = max(0, int(audio_ms))
     pointer_ms = max(0, int(choreography.pointer_ms))
@@ -38,7 +36,6 @@ def plan_beat(
 
     action_frac = max(choreography.min_action_at, min(0.95, choreography.action_at))
     action_at_ms = int(audio_ms * action_frac) if audio_ms else 0
-    # Le hold inclut le pointer : on pointe pendant le début de la phrase.
     hold_before_action_ms = max(0, action_at_ms - pointer_ms)
 
     content_end = max(audio_ms, action_at_ms + max(0, estimated_action_ms))
@@ -68,13 +65,13 @@ def estimate_actions_ms(actions: list[dict[str, Any]], type_delay_ms: int) -> in
         elif "click" in action:
             total += 800
         elif "scroll" in action or "highlight" in action:
-            total += 600
+            total += 500
         elif "wait" in action:
             total += int(action["wait"])
         elif "goto" in action:
-            total += 2000
+            total += 1500
         else:
-            total += 1000
+            total += 800
     return total
 
 
