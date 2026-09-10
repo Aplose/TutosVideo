@@ -1,0 +1,96 @@
+# --- Secrets & credentials (repo public) ---
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+id_rsa*
+id_ed25519*
+*.keystore
+credentials.json
+credentials.*.json
+**/credentials*
+secrets/
+**/secrets/
+*.secret
+*.token
+auth.json
+service-account*.json
+
+# --- Local app data / databases ---
+data/
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+
+# --- Local scenarios (réalisés en local, jamais publiés) ---
+scenarios/
+
+# --- Tout output local (renders, audio, logs, timelines, codes) ---
+output/
+
+# --- Runtime codes & local overrides ---
+**/verify_code.txt
+*.local.yaml
+*.local.yml
+local.settings.json
+
+# --- Media générés hors output/ (filet de sécurité) ---
+**/audio/
+**/*.mp4
+**/*.webm
+**/*.mp3
+**/*.wav
+**/.pw-video-raw/
+
+# --- Logs ---
+*.log
+logs/
+
+# --- Python ---
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+.cache/
+
+# --- Playwright / browsers ---
+test-results/
+playwright-report/
+playwright/.cache/
+/blob-report/
+
+# --- IDE / OS ---
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Cursor / local agent ---
+.cursor/
+.claude/

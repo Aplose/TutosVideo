@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tutosvideo"
+version = "0.2.0"
+description = "Pipeline de tutoriels vidéo : découvrir, valider un script, puis filmer (voix d'abord)."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "playwright>=1.49.0",
+  "pyyaml>=6.0.2",
+  "python-dotenv>=1.0.1",
+  "mistralai>=1.5.0",
+  "httpx>=0.27.0",
+  "mutagen>=1.47.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+tutosvideo = "tutosvideo.cli:main"
+tutosvideo-gui = "tutosvideo.gui.app:run_gui"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+tutosvideo = ["py.typed"]

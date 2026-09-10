@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Lance l'interface graphique via le venv local.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+VENV_DIR="${VENV_DIR:-.venv}"
+
+if [[ ! -x "$VENV_DIR/bin/python" ]]; then
+  echo "venv absent. Lancez d'abord : ./scripts/setup.sh" >&2
+  echo "Ou ouvrez l'écran Setup dans l'UI après une install minimale." >&2
+  exit 1
+fi
+
+# shellcheck disable=SC1091
+source "$VENV_DIR/bin/activate"
+exec tutosvideo gui "$@"
